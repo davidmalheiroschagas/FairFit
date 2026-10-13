@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FairFit Challenge</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js para o gráfico de evolução -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Estilos Personalizados (Animações e Efeitos Liquid Glass) -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9fafb;
+            overflow-x: hidden;
+        }
+
+        /* Animações dos blobs de fundo */
+        @keyframes blob {
+            0% { transform: translate(0px, 0px) scale(1); }
+            33% { transform: translate(30px, -50px) scale(1.1); }
+            66% { transform: translate(-20px, 20px) scale(0.9); }
+            100% { transform: translate(0px, 0px) scale(1); }
+        }
+        .animate-blob {
+            animation: blob 7s infinite;
+        }
+        .animation-delay-2000 {
+            animation-delay: 2s;
+        }
+        .animation-delay-4000 {
+            animation-delay: 4s;
+        }
+
+        /* Esconder scrollbar nos modais mas permitir rolagem */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+    </style>
+</head>
+<body class="text-gray-800 relative min-h-screen selection:bg-blue-300">
+
+    <div class="fixed top-[-10%] left-[-10%] w-[40vw] h-[40vw] rounded-full bg-blue-400/30 blur-[100px] mix-blend-multiply animate-blob pointer-events-none z-0"></div>
+    <div class="fixed top-[20%] right-[-10%] w-[50vw] h-[50vw] rounded-full bg-purple-400/30 blur-[120px] mix-blend-multiply animate-blob animation-delay-2000 pointer-events-none z-0"></div>
+    <div class="fixed bottom-[-20%] left-[20%] w-[45vw] h-[45vw] rounded-full bg-pink-400/30 blur-[100px] mix-blend-multiply animate-blob animation-delay-4000 pointer-events-none z-0"></div>
+
+    <div class="relative z-10 max-w-6xl mx-auto px-4 py-12">
+        
+        <header class="flex flex-col md:flex-row justify-between items-center mb-12 gap-6 bg-white/40 backdrop-blur-xl border border-white/50 p-6 rounded-3xl shadow-[0_8px_32px_0_rgba(31,38,135,0.07)]">
+            <div>
+                <h1 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 flex items-center gap-3">
+                    <i data-lucide="trophy" class="text-blue-500 w-10 h-10"></i>
+                    FairFit Challenge
+                </h1>
+                <p class="text-gray-600 mt-2 font-medium flex items-center gap-2">
+                    <i data-lucide="info" class="w-4 h-4 text-purple-500"></i>
+                    Dados salvos automaticamente na nuvem
+                </p>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button 
+                    id="btnShare"
+                    onclick="shareRanking()"
+                    class="flex items-center justify-center gap-2 px-6 py-3 font-semibold rounded-2xl shadow-lg transition-all transform hover:-translate-y-1 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200"
+                >
+                    <i data-lucide="share-2" id="iconShare" class="w-5 h-5"></i>
+                    <span id="textShare">Ranking</span>
+                </button>
+                <button 
+                    onclick="openParticipantModal()"
+                    class="flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
+                >
+                    <i data-lucide="user-plus" class="w-5 h-5"></i>
+                    Novo Competidor
+                </button>
+            </div>
+        </header>
+
+        <div id="participantsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Loading State -->
+            <div class="col-span-full py-20 text-center bg-white/30 backdrop-blur-xl border border-white/50 rounded-3xl">
+                <i data-lucide="loader-2" class="w-12 h-12 text-blue-500 mx-auto mb-4 animate-spin"></i>
+                <h3 class="text-xl font-bold text-gray-600">Conectando à nuvem...</h3>
+            </div>
+        </div>
+    </div>
+
+    <div id="participantModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-gray-900/20 backdrop-blur-sm transition-opacity" onclick="closeModals()"></div>
+        
+        <div class="relative bg-white/80 backdrop-blur-2xl border border-white/60 shadow-2xl rounded-3xl w-full max-w-md p-8 transform transition-all max-h-[90vh] overflow-y-auto no-scrollbar">
+            <button onclick="closeModals()" class="absolute top-4 right-4 p-2 bg-white/50 hover:bg-white rounded-full text-gray-500 transition-colors">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            
+            <h3 id="modalTitle" class="text-2xl font-bold text-gray-800 mb-6">Novo Competidor</h3>
+
+            <form id="participantForm" onsubmit="saveParticipant(event)" class="space-y-4">
+                <input type="hidden" id="editId">
+                
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Nome</label>
+                    <input type="text" id="formName" required class="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl focus:ring-2 focus:ring-purple-400 focus:outline-none transition-all shadow-inner">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Idade</label>
+                        <input type="number" id="formAge" required min="1" class="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl focus:ring-2 focus:ring-purple-400 focus:outline-none transition-all shadow-inner">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Sexo</label>
+                        <select id="formGender" class="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl focus:ring-2 focus:ring-purple-400 focus:outline-none transition-all shadow-inner">
+                            <option value="female">Feminino</option>
+                            <option value="male">Masculino</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Altura (cm)</label>
+                        <input type="number" id="formHeight" required min="50" max="250" class="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl focus:ring-2 focus:ring-purple-400 focus:outline-none transition-all shadow-inner">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Peso Inic. (kg)</label>
+                        <input type="number" id="formInitialWeight" required step="0.1" min="10" class="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl focus:ring-2 focus:ring-purple-400 focus:outline-none transition-all shadow-inner disabled:opacity-50">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
+                        <i data-lucide="target" class="w-4 h-4 text-pink-500"></i>
+                        Meta de Peso Pessoal (kg) <span class="text-gray-400 font-normal">- Opcional</span>
+                    </label>
+                    <input type="number" id="formTargetWeight" step="0.1" min="10" placeholder="Ex: 65.0" class="w-full px-4 py-3 bg-white/70 border border-white/60 rounded-2xl focus:ring-2 focus:ring-pink-400 focus:outline-none transition-all shadow-inner">
+                </div>
+
+                <div class="pt-4">
+                    <button type="submit" class="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5">
+                        Salvar Competidor
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="weightModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-gray-900/20 backdrop-blur-sm transition-opacity" onclick="closeModals()"></div>
+        
+        <div class="relative bg-white/80 backdrop-blur-2xl border border-white/60 shadow-2xl rounded-3xl w-full max-w-sm p-8 transform transition-all">
+            <button onclick="closeModals()" class="absolute top-4 right-4 p-2 bg-white/50 hover:bg-white rounded-full text-gray-500 transition-colors">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            
+            <h3 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                <i data-lucide="weight" class="text-blue-500 w-6 h-6"></i>
+                Atualizar Peso
+            </h3>
+
+            <form id="weightForm" onsubmit="saveWeight(event)" class="space-y-4">
+                <input type="hidden" id="weightEditId">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Novo Peso Atual (kg)</label>
+                    <input type="number" id="formNewWeight" step="0.1" min="10" placeholder="Ex: 75.5" required class="w-full px-4 py-4 text-xl font-bold bg-white/70 border border-white/60 rounded-2xl focus:ring-2 focus:ring-blue-400 focus:outline-none transition-all shadow-inner placeholder-gray-400">
+                </div>
+                <div class="pt-2">
+                    <button type="submit" class="w-full py-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold rounded-2xl shadow-lg transition-all transform hover:-translate-y-0.5">
+                        Salvar Nova Pesagem
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="deleteModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-gray-900/30 backdrop-blur-md transition-opacity" onclick="closeModals()"></div>
+        
+        <div class="relative bg-white/90 backdrop-blur-2xl border border-white/60 shadow-2xl rounded-3xl w-full max-w-sm p-8 text-center transform transition-all">
+            <div class="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="alert-triangle" class="w-8 h-8"></i>
+            </div>
+            <h3 class="text-2xl font-bold text-gray-800 mb-2">Excluir Participante?</h3>
+            <p class="text-gray-500 mb-6">Esta ação apagará todo o histórico e não poderá ser desfeita.</p>
+            
+            <div class="flex gap-3">
+                <button onclick="closeModals()" class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-all">
+                    Cancelar
+                </button>
+                <button id="confirmDeleteBtn" class="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl shadow-lg shadow-red-500/30 transition-all">
+                    Sim, Excluir
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Variáveis de ambiente injetadas
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app, auth, db, currentUser;
+        let globalParticipants = [];
+        let chartInstances = {}; // Para guardar as referências dos gráficos e destruí-los ao recriar
+
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+
+            const authenticate = async () => {
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    currentUser = auth.currentUser;
+                    setupRealtimeListener();
+                } catch (error) {
+                    console.error("Erro de autenticação:", error);
+                    document.getElementById('participantsGrid').innerHTML = `<div class="col-span-full py-10 text-center text-red-500">Erro ao conectar com a nuvem.</div>`;
+                }
+            };
+            authenticate();
+        } catch (e) {
+            console.error("Erro ao inicializar Firebase", e);
+        }
+
+        function setupRealtimeListener() {
+            if (!currentUser) return;
+            
+            // Regra Obrigatória 1: Caminho estrito
+            const participantsRef = collection(db, 'artifacts', appId, 'public', 'data', 'participants');
+            
+            onSnapshot(participantsRef, (snapshot) => {
+                const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                // Processa métricas antes de salvar no estado global
+                const processed = data.map(calculateMetrics);
+                
+                // Aplica lógica da Badge "On Fire"
+                let maxRecentLoss = 0;
+                let onFireId = null;
+                processed.forEach(p => {
+                    if (p.weightHistory.length >= 2) {
+                        const loss = p.weightHistory[p.weightHistory.length - 2].weight - p.currentWeight;
+                        if (loss > maxRecentLoss && loss > 0) {
+                            maxRecentLoss = loss;
+                            onFireId = p.id;
+                        }
+                    }
+                });
+                if (onFireId) {
+                    const onFireUser = processed.find(p => p.id === onFireId);
+                    if (onFireUser) {
+                        onFireUser.badges.unshift({ 
+                            icon: '🔥', 
+                            color: 'bg-orange-100 text-orange-600 border-orange-200', 
+                            title: 'On Fire', 
+                            desc: `Maior perda recente (-${maxRecentLoss.toFixed(1)}kg)` 
+                        });
+                    }
+                }
+
+                // Ordena por maior pontuação (Regra 2: Ordenar em memória)
+                globalParticipants = processed.sort((a, b) => b.score - a.score);
+                
+                renderParticipants();
+            }, (error) => {
+                console.error("Erro no onSnapshot:", error);
+            });
+        }
+
+        function calculateMetrics(p) {
+            const heightM = p.height / 100;
+            
+            let history = p.weightHistory || [];
+            if (history.length === 0) {
+                history.push({ date: new Date().toISOString(), weight: p.initialWeight });
+            }
+            
+            const currentWeight = history[history.length - 1].weight;
+            const initialWeight = history[0].weight;
+            
+            const bmi = initialWeight / (heightM * heightM);
+            const finalBmi = currentWeight / (heightM * heightM);
+            
+            const idealWeight = 25 * (heightM * heightM); 
+            const realExcessWeight = Math.max(0, initialWeight - idealWeight);
+
+            // Amortecedor de excesso mínimo para não prejudicar quem tem pouco a perder
+            const safeExcessWeight = Math.max(realExcessWeight, initialWeight * 0.15);
+
+            const weightLost = initialWeight - currentWeight;
+            const score = (weightLost / safeExcessWeight) * 100;
+
+            const badges = [];
+            if (history.length >= 3) {
+                if (history[history.length-1].weight < history[history.length-2].weight &&
+                    history[history.length-2].weight < history[history.length-3].weight) {
+                    badges.push({ icon: '🐢', color: 'bg-emerald-100 text-emerald-600 border-emerald-200', title: 'Consistente', desc: 'Perdeu peso em 3 pesagens' });
+                }
+            }
+            if (score >= 50) badges.push({ icon: '🌟', color: 'bg-yellow-100 text-yellow-600 border-yellow-200', title: 'Estrela', desc: '50% do objetivo' });
+            else if (score >= 20) badges.push({ icon: '⭐', color: 'bg-blue-100 text-blue-600 border-blue-200', title: 'Focado', desc: '20% do objetivo' });
+            
+            if (p.targetWeight && currentWeight <= p.targetWeight) {
+                badges.push({ icon: '🎯', color: 'bg-purple-100 text-purple-600 border-purple-200', title: 'Meta Batida', desc: 'Atingiu a meta pessoal!' });
+            }
+
+            let targetProgress = 0;
+            if (p.targetWeight && initialWeight > p.targetWeight) {
+                const totalToLose = initialWeight - p.targetWeight;
+                targetProgress = Math.max(0, Math.min(100, (weightLost / totalToLose) * 100));
+            }
+
+            // Prepara dados pro gráfico (Array de labels e dados)
+            const chartLabels = history.map(entry => {
+                const d = new Date(entry.date);
+                return `${d.getDate()}/${d.getMonth() + 1}`;
+            });
+            const chartData = history.map(entry => entry.weight);
+
+            return { 
+                ...p, weightHistory: history, chartLabels, chartData, badges,
+                initialWeight, currentWeight, targetProgress, bmi, finalBmi,
+                excessWeight: realExcessWeight, weightLost, score 
+            };
+        }
+
+        function renderParticipants() {
+            const grid = document.getElementById('participantsGrid');
+            
+            if (globalParticipants.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full py-20 text-center bg-white/30 backdrop-blur-xl border border-white/50 rounded-3xl shadow-sm">
+                        <i data-lucide="trophy" class="w-16 h-16 text-gray-300 mx-auto mb-4"></i>
+                        <h3 class="text-xl font-bold text-gray-500">Nenhum competidor cadastrado</h3>
+                        <p class="text-gray-400 mt-2">Clique em "Novo Competidor" para começar o desafio.</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            grid.innerHTML = '';
+
+            globalParticipants.forEach((p, index) => {
+                const card = document.createElement('div');
+                card.className = "group relative bg-white/40 backdrop-blur-xl border border-white/50 p-6 rounded-3xl shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] hover:shadow-[0_8px_32px_0_rgba(31,38,135,0.15)] transition-all duration-300 flex flex-col";
+                
+                // Badge de Posição
+                let rankBadge = '';
+                if (p.score > 0) {
+                    let rankClass = index === 0 ? 'bg-gradient-to-br from-yellow-300 to-yellow-600 text-xl w-12 h-12 -top-5 -left-5' : 
+                                  index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 w-10 h-10 -top-4 -left-4' : 
+                                  index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-700 w-10 h-10 -top-4 -left-4' : 
+                                  'bg-blue-500/80 w-10 h-10 -top-4 -left-4';
+                    rankBadge = `<div class="absolute flex items-center justify-center rounded-full text-white font-bold shadow-lg border-2 border-white/50 backdrop-blur-md z-20 ${rankClass}">${index + 1}º</div>`;
+                }
+
+                // Badges HTML
+                let badgesHtml = p.badges.map(b => 
+                    `<span title="${b.desc}" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${b.color} border cursor-help shadow-sm">${b.icon} ${b.title}</span>`
+                ).join('');
+
+                // Status de Perda/Ganho
+                let diffClass = p.weightLost > 0 ? 'text-emerald-600' : p.weightLost < 0 ? 'text-red-500' : 'text-gray-400';
+                let diffText = p.weightLost > 0 ? `-${p.weightLost.toFixed(1)}` : p.weightLost < 0 ? `+${Math.abs(p.weightLost).toFixed(1)}` : '0.0';
+                
+                let bmiDiffClass = p.finalBmi < p.bmi ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200';
+                let bmiDiffTextClass = p.finalBmi < p.bmi ? 'text-emerald-500' : 'text-red-500';
+                let bmiDiffText = p.finalBmi < p.bmi ? '-' : '+';
+                
+                let targetHtml = '';
+                if (p.targetWeight) {
+                    targetHtml = `
+                    <div class="bg-white/50 rounded-xl p-3 border border-pink-100/50 shadow-inner mt-3">
+                        <div class="flex justify-between items-center mb-2">
+                            <p class="text-[11px] font-semibold text-gray-500 flex items-center gap-1"><i data-lucide="target" class="w-3 h-3 text-pink-500"></i> Meta Pessoal: ${p.targetWeight}kg</p>
+                            <p class="text-[11px] font-bold text-pink-500">${p.targetProgress.toFixed(0)}%</p>
+                        </div>
+                        <div class="w-full bg-gray-200/50 h-1.5 rounded-full overflow-hidden">
+                            <div class="h-full bg-gradient-to-r from-pink-400 to-rose-500 rounded-full transition-all duration-1000 ease-out" style="width: ${p.targetProgress}%"></div>
+                        </div>
+                    </div>`;
+                }
+
+                card.innerHTML = `
+                    ${rankBadge}
+                    
+                    <div class="absolute top-4 right-4 flex gap-2 z-20">
+                        <button onclick="window.openWeightModal('${p.id}')" class="p-2 bg-blue-100 hover:bg-blue-200 rounded-xl shadow-sm backdrop-blur-sm text-blue-600 transition-colors" title="Atualizar Peso">
+                            <i data-lucide="weight" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="window.openParticipantModal('${p.id}')" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl shadow-sm backdrop-blur-sm text-gray-600 transition-colors" title="Editar">
+                            <i data-lucide="edit-2" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="window.confirmDelete('${p.id}')" class="p-2 bg-red-100 hover:bg-red-200 rounded-xl shadow-sm backdrop-blur-sm text-red-500 transition-colors" title="Excluir">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+
+                    <h2 class="text-2xl font-bold text-gray-800 mb-1 pr-32 truncate">${p.name}</h2>
+                    <p class="text-sm text-gray-500 mb-3 flex gap-3">
+                        <span>${p.age} anos</span><span>•</span><span>${p.height} cm</span>
+                    </p>
+
+                    <div class="flex flex-wrap gap-2 mb-4 min-h-[24px] items-center">
+                        ${badgesHtml}
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div class="bg-white/50 rounded-2xl p-3 border border-white/40 shadow-inner">
+                            <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1 flex items-center gap-1"><i data-lucide="scale" class="w-3 h-3"></i> Inicial</p>
+                            <p class="text-lg font-bold text-gray-700">${p.initialWeight.toFixed(1)} <span class="text-sm font-normal text-gray-500">kg</span></p>
+                            <p class="text-xs text-gray-500 mt-1">IMC: ${p.bmi.toFixed(1)}</p>
+                        </div>
+                        <div class="bg-white/50 rounded-2xl p-3 border border-white/40 shadow-inner flex flex-col justify-center">
+                            <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1 flex items-center gap-1"><i data-lucide="activity" class="w-3 h-3"></i> Atual</p>
+                            <p class="text-lg font-bold text-blue-600">
+                                ${p.weightHistory.length > 0 ? p.currentWeight.toFixed(1) : '--'} 
+                                <span class="text-sm font-normal text-gray-500">kg</span>
+                            </p>
+                            <div class="text-xs mt-1 h-5">
+                                ${p.weightHistory.length > 1 ? `
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-medium border ${bmiDiffClass}">
+                                    IMC: ${p.finalBmi.toFixed(1)} 
+                                    <span class="text-[10px] ml-0.5 font-bold ${bmiDiffTextClass}">
+                                        (${bmiDiffText}${Math.abs(p.bmi - p.finalBmi).toFixed(1)})
+                                    </span>
+                                </span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="w-full h-20 mb-4 mt-auto relative">
+                        <canvas id="chart-${p.id}"></canvas>
+                    </div>
+
+                    <div class="space-y-3 mt-auto">
+                        <div class="bg-gradient-to-br from-blue-50/50 to-purple-50/50 rounded-2xl p-4 border border-blue-100/50 relative overflow-hidden">
+                            <div class="relative z-10 flex justify-between items-end">
+                                <div>
+                                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Pontuação Justa</p>
+                                    <div class="flex items-baseline gap-1 mt-1">
+                                        <span class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
+                                            ${p.score > 0 ? p.score.toFixed(1) : '0.0'}
+                                        </span>
+                                        <span class="text-sm font-bold text-purple-500">%</span>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-xs font-medium text-gray-500">Perda Total</p>
+                                    <p class="text-lg font-bold ${diffClass}">
+                                        ${diffText} kg
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <div class="w-full bg-white/60 h-2 rounded-full mt-3 overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-blue-400 to-purple-500 rounded-full transition-all duration-1000 ease-out" style="width: ${Math.min(100, Math.max(0, p.score))}%"></div>
+                            </div>
+                        </div>
+                        ${targetHtml}
+                    </div>
+                `;
+                
+                grid.appendChild(card);
+
+                // Configura o Gráfico Chart.js se houver mais de 1 ponto de dados
+                if (p.chartData.length > 1) {
+                    const ctx = document.getElementById(`chart-${p.id}`).getContext('2d');
+                    
+                    if(chartInstances[p.id]) {
+                        chartInstances[p.id].destroy();
+                    }
+
+                    chartInstances[p.id] = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: p.chartLabels,
+                            datasets: [{
+                                data: p.chartData,
+                                borderColor: '#8b5cf6',
+                                backgroundColor: '#8b5cf6',
+                                borderWidth: 3,
+                                pointRadius: 4,
+                                pointBackgroundColor: '#8b5cf6',
+                                pointBorderColor: '#fff',
+                                pointBorderWidth: 2,
+                                pointHoverRadius: 6,
+                                fill: false,
+                                tension: 0.4 // Curva suave
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    displayColors: false,
+                                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                    titleColor: '#000',
+                                    bodyColor: '#6366f1',
+                                    bodyFont: { weight: 'bold', size: 14 },
+                                    borderColor: 'rgba(0,0,0,0.05)',
+                                    borderWidth: 1,
+                                    callbacks: {
+                                        title: () => null, // Oculta o titulo (data)
+                                        label: (context) => `${context.parsed.y} kg`
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: { display: false },
+                                y: { 
+                                    display: false,
+                                    min: Math.min(...p.chartData) - 1,
+                                    max: Math.max(...p.chartData) + 1
+                                }
+                            },
+                            layout: { padding: 5 }
+                        }
+                    });
+                }
+            });
+
+            // Re-renderiza os ícones do Lucide criados dinamicamente
+            lucide.createIcons();
+        }
+
+        window.openParticipantModal = (id = null) => {
+            const form = document.getElementById('participantForm');
+            form.reset();
+            
+            if (id) {
+                const p = globalParticipants.find(x => x.id === id);
+                if(p) {
+                    document.getElementById('modalTitle').innerText = 'Editar Competidor';
+                    document.getElementById('editId').value = p.id;
+                    document.getElementById('formName').value = p.name;
+                    document.getElementById('formAge').value = p.age;
+                    document.getElementById('formGender').value = p.gender;
+                    document.getElementById('formHeight').value = p.height;
+                    document.getElementById('formInitialWeight').value = p.initialWeight;
+                    document.getElementById('formInitialWeight').disabled = true; // Impede alterar raiz
+                    if(p.targetWeight) document.getElementById('formTargetWeight').value = p.targetWeight;
+                }
+            } else {
+                document.getElementById('modalTitle').innerText = 'Novo Competidor';
+                document.getElementById('editId').value = '';
+                document.getElementById('formInitialWeight').disabled = false;
+            }
+            
+            document.getElementById('participantModal').classList.remove('hidden');
+        };
+
+        window.openWeightModal = (id) => {
+            const p = globalParticipants.find(x => x.id === id);
+            if(!p) return;
+            
+            document.getElementById('weightForm').reset();
+            document.getElementById('weightEditId').value = p.id;
+            document.getElementById('formNewWeight').value = p.currentWeight;
+            
+            document.getElementById('weightModal').classList.remove('hidden');
+        };
+
+        window.closeModals = () => {
+            document.getElementById('participantModal').classList.add('hidden');
+            document.getElementById('weightModal').classList.add('hidden');
+            document.getElementById('deleteModal').classList.add('hidden');
+        };
+
+        window.saveParticipant = async (e) => {
+            e.preventDefault();
+            if (!currentUser) return;
+
+            const editId = document.getElementById('editId').value;
+            const btn = e.target.querySelector('button[type="submit"]');
+            btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
+            lucide.createIcons();
+
+            const baseData = {
+                name: document.getElementById('formName').value,
+                gender: document.getElementById('formGender').value,
+                age: Number(document.getElementById('formAge').value),
+                height: Number(document.getElementById('formHeight').value),
+                targetWeight: document.getElementById('formTargetWeight').value ? Number(document.getElementById('formTargetWeight').value) : null,
+            };
+
+            try {
+                if (editId) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'participants', editId), baseData);
+                } else {
+                    const initWeight = Number(document.getElementById('formInitialWeight').value);
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'participants'), {
+                        ...baseData,
+                        initialWeight: initWeight,
+                        weightHistory: [{ date: new Date().toISOString(), weight: initWeight }]
+                    });
+                }
+                closeModals();
+            } catch (err) {
+                console.error("Erro ao salvar", err);
+                alert("Erro ao salvar dados.");
+            } finally {
+                btn.innerHTML = 'Salvar Competidor';
+            }
+        };
+
+        window.saveWeight = async (e) => {
+            e.preventDefault();
+            if (!currentUser) return;
+
+            const editId = document.getElementById('weightEditId').value;
+            const newWeight = Number(document.getElementById('formNewWeight').value);
+            
+            const btn = e.target.querySelector('button[type="submit"]');
+            btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
+            lucide.createIcons();
+
+            const participant = globalParticipants.find(p => p.id === editId);
+            if (!participant) return;
+
+            let newHistory = [
+                ...participant.weightHistory,
+                { date: new Date().toISOString(), weight: newWeight }
+            ];
+
+            try {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'participants', editId), {
+                    weightHistory: newHistory
+                });
+                closeModals();
+            } catch (err) {
+                console.error("Erro ao atualizar peso", err);
+                alert("Erro ao salvar novo peso.");
+            } finally {
+                btn.innerHTML = 'Salvar Nova Pesagem';
+            }
+        };
+
+        let pendingDeleteId = null;
+        window.confirmDelete = (id) => {
+            pendingDeleteId = id;
+            document.getElementById('deleteModal').classList.remove('hidden');
+        };
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
+            if (!currentUser || !pendingDeleteId) return;
+            const btn = document.getElementById('confirmDeleteBtn');
+            btn.innerText = 'Apagando...';
+            
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'participants', pendingDeleteId));
+                closeModals();
+            } catch (err) {
+                console.error("Erro ao excluir", err);
+            } finally {
+                btn.innerText = 'Sim, Excluir';
+                pendingDeleteId = null;
+            }
+        });
+
+        window.shareRanking = () => {
+            let text = "🏆 *FairFit Challenge - Ranking*\n\n";
+            globalParticipants.forEach((p, i) => {
+                const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '👏';
+                const signal = p.weightLost > 0 ? '-' : '+';
+                text += `${emoji} *${p.name}*: ${p.score.toFixed(1)}% (Perdeu ${signal}${Math.abs(p.weightLost).toFixed(1)}kg)\n`;
+            });
+            
+            navigator.clipboard.writeText(text).then(() => {
+                const textEl = document.getElementById('textShare');
+                const iconEl = document.getElementById('iconShare');
+                const btn = document.getElementById('btnShare');
+                
+                textEl.innerText = "Copiado!";
+                iconEl.setAttribute('data-lucide', 'check');
+                btn.classList.add('bg-emerald-500', 'text-white');
+                btn.classList.remove('bg-white', 'text-gray-700');
+                lucide.createIcons();
+                
+                setTimeout(() => {
+                    textEl.innerText = "Ranking";
+                    iconEl.setAttribute('data-lucide', 'share-2');
+                    btn.classList.remove('bg-emerald-500', 'text-white');
+                    btn.classList.add('bg-white', 'text-gray-700');
+                    lucide.createIcons();
+                }, 2000);
+            }).catch(err => console.error("Erro ao copiar", err));
+        };
+
+        // Inicializa ícones base
+        lucide.createIcons();
+    </script>
+</body>
+</html>
