@@ -7,13 +7,12 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module">
-        // Importações do Firebase (mantidas na versão estável compatível com o app)
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
         // ==========================================
-        // SUAS CHAVES DO FIREBASE APLICADAS
+        // CHAVES DO FIREBASE
         // ==========================================
         const firebaseConfig = {
             apiKey: "AIzaSyC_H5RRr8OgNAyd0xV01oFG-sQmnUQtA5M",
@@ -35,15 +34,15 @@
         let chartInstances = {};
         let currentUserId = null;
         let unsubscribeSnapshot = null;
+        let isFetching = true; // Estado de carregamento inicial
 
         // ==========================================
         // AUTENTICAÇÃO COM GOOGLE
         // ==========================================
-        
         window.loginWithGoogle = function() {
             signInWithPopup(auth, provider).catch((error) => {
-                console.error("Erro no login:", error);
-                alert("Erro ao fazer login com Google.");
+                console.error("Erro completo:", error);
+                alert("Erro do Firebase: " + error.code + "\n" + error.message);
             });
         };
 
@@ -63,6 +62,8 @@
                 appScreen.style.display = 'block';
                 userProfilePic.src = user.photoURL || '';
                 userNameDisplay.innerText = user.displayName.split(' ')[0];
+                isFetching = true;
+                renderDashboard(); // Renderiza o Loading
 
                 const userParticipantsRef = collection(db, "users", currentUserId, "participants");
                 
@@ -73,6 +74,7 @@
                     snapshot.forEach((doc) => {
                         participants.push({ id: doc.id, ...doc.data() });
                     });
+                    isFetching = false;
                     renderDashboard();
                 });
             } else {
@@ -95,7 +97,7 @@
                 await setDoc(doc(db, "users", currentUserId, "participants", participant.id), participant);
             } catch (error) {
                 console.error("Erro ao salvar:", error);
-                alert("Erro ao salvar dados. Verifique se o Firestore Database está criado e no 'Modo de Teste'.");
+                alert("Erro ao salvar dados.");
             }
         };
 
@@ -117,9 +119,13 @@
         }
 
         function calculateMetrics(participant) {
-            const initialWeight = participant.weightHistory[0].weight;
-            const currentWeight = participant.weightHistory[participant.weightHistory.length - 1].weight;
+            const firstRecord = participant.weightHistory[0];
+            const lastRecord = participant.weightHistory[participant.weightHistory.length - 1];
+            
+            const initialWeight = firstRecord.weight;
+            const currentWeight = lastRecord.weight;
             const heightInMeters = participant.height / 100;
+            
             const initialIMC = initialWeight / (heightInMeters * heightInMeters);
             const currentIMC = currentWeight / (heightInMeters * heightInMeters);
             
@@ -131,6 +137,18 @@
             const weightLost = initialWeight - currentWeight;
             const scorePercentage = (weightLost / excessWeight) * 100;
             const imcDrop = initialIMC - currentIMC;
+
+            // Cálculo das Medidas (Peito, Abdômen, Quadril)
+            const initialMeasurementsTotal = (firstRecord.chest || 0) + (firstRecord.abs || 0) + (firstRecord.hips || 0);
+            const currentMeasurementsTotal = (lastRecord.chest || 0) + (lastRecord.abs || 0) + (lastRecord.hips || 0);
+            
+            let cmLost = 0;
+            let cmLostPercentage = 0;
+
+            if (initialMeasurementsTotal > 0 && currentMeasurementsTotal > 0) {
+                cmLost = initialMeasurementsTotal - currentMeasurementsTotal;
+                cmLostPercentage = (cmLost / initialMeasurementsTotal) * 100;
+            }
             
             let badges = [];
             if (scorePercentage >= 50) badges.push({ icon: '🌟', title: 'Estrela' });
@@ -147,7 +165,7 @@
                 badges.push({ icon: '🎯', title: 'Meta Batida' });
             }
 
-            return { initialIMC, currentIMC, scorePercentage, imcDrop, weightLost, badges };
+            return { initialIMC, currentIMC, scorePercentage, imcDrop, weightLost, badges, cmLost, cmLostPercentage };
         }
 
         window.toggleModal = function(show) {
@@ -156,14 +174,33 @@
                 document.getElementById('form').reset();
                 editingId = null;
                 document.getElementById('initialWeight').disabled = false;
+                document.getElementById('initialChest').disabled = false;
+                document.getElementById('initialAbs').disabled = false;
+                document.getElementById('initialHips').disabled = false;
             }
         };
 
         window.openAddWeightModal = function(id) {
             const p = participants.find(x => x.id === id);
+            const lastRecord = p.weightHistory[p.weightHistory.length - 1];
+            
             document.getElementById('addWeightId').value = id;
-            document.getElementById('newWeightLabel').innerText = `Novo peso para ${p.name}`;
+            document.getElementById('newWeightLabel').innerText = `Nova Avaliação para ${p.name}`;
+            
+            // Mostrar último peso como referência
+            document.getElementById('lastWeightInfo').innerText = `Último peso registrado: ${lastRecord.weight.toFixed(1)} kg`;
+            
+            // Limpar campos
             document.getElementById('newWeightInput').value = '';
+            document.getElementById('newChestInput').value = '';
+            document.getElementById('newAbsInput').value = '';
+            document.getElementById('newHipsInput').value = '';
+
+            // Colocar os últimos valores como placeholder visual
+            document.getElementById('newChestInput').placeholder = lastRecord.chest ? `Último: ${lastRecord.chest} cm` : 'cm';
+            document.getElementById('newAbsInput').placeholder = lastRecord.abs ? `Último: ${lastRecord.abs} cm` : 'cm';
+            document.getElementById('newHipsInput').placeholder = lastRecord.hips ? `Último: ${lastRecord.hips} cm` : 'cm';
+
             document.getElementById('addWeightModal').style.display = 'flex';
         };
 
@@ -177,17 +214,40 @@
             }
         };
 
+        // Submissão do novo peso e medidas
         document.getElementById('addWeightForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const id = document.getElementById('addWeightId').value;
+            const p = participants.find(x => x.id === id);
+            const lastRecord = p.weightHistory[p.weightHistory.length - 1];
+            
             const newWeight = parseFloat(document.getElementById('newWeightInput').value);
             const date = new Date().toLocaleDateString('pt-BR');
-            const p = participants.find(x => x.id === id);
-            p.weightHistory.push({ date, weight: newWeight });
+
+            // Se deixar em branco, mantém o valor da última avaliação
+            const newChestInput = document.getElementById('newChestInput').value;
+            const newAbsInput = document.getElementById('newAbsInput').value;
+            const newHipsInput = document.getElementById('newHipsInput').value;
+
+            const newChest = newChestInput !== '' ? parseFloat(newChestInput) : (lastRecord.chest || 0);
+            const newAbs = newAbsInput !== '' ? parseFloat(newAbsInput) : (lastRecord.abs || 0);
+            const newHips = newHipsInput !== '' ? parseFloat(newHipsInput) : (lastRecord.hips || 0);
+
+            // Evitar duplicados no mesmo dia: Se a data for igual à última, apenas atualiza
+            if (lastRecord.date === date) {
+                lastRecord.weight = newWeight;
+                lastRecord.chest = newChest;
+                lastRecord.abs = newAbs;
+                lastRecord.hips = newHips;
+            } else {
+                p.weightHistory.push({ date, weight: newWeight, chest: newChest, abs: newAbs, hips: newHips });
+            }
+            
             saveParticipantToCloud(p);
             closeAddWeightModal();
         });
 
+        // Criação ou Edição do Competidor
         document.getElementById('form').addEventListener('submit', function(e) {
             e.preventDefault();
             const p = {
@@ -198,6 +258,10 @@
                 targetWeight: parseFloat(document.getElementById('targetWeight').value) || 0
             };
 
+            const initialChest = parseFloat(document.getElementById('initialChest').value) || 0;
+            const initialAbs = parseFloat(document.getElementById('initialAbs').value) || 0;
+            const initialHips = parseFloat(document.getElementById('initialHips').value) || 0;
+
             if (editingId) {
                 const existing = participants.find(x => x.id === editingId);
                 existing.name = p.name;
@@ -205,12 +269,19 @@
                 existing.gender = p.gender;
                 existing.height = p.height;
                 existing.targetWeight = p.targetWeight;
+                // Atualizar as medidas do dia 1
+                existing.weightHistory[0].chest = initialChest;
+                existing.weightHistory[0].abs = initialAbs;
+                existing.weightHistory[0].hips = initialHips;
                 saveParticipantToCloud(existing);
             } else {
                 p.id = Date.now().toString();
                 p.weightHistory = [{
                     date: new Date().toLocaleDateString('pt-BR'),
-                    weight: parseFloat(document.getElementById('initialWeight').value)
+                    weight: parseFloat(document.getElementById('initialWeight').value),
+                    chest: initialChest,
+                    abs: initialAbs,
+                    hips: initialHips
                 }];
                 saveParticipantToCloud(p);
             }
@@ -219,13 +290,20 @@
 
         window.editParticipant = function(id) {
             const p = participants.find(x => x.id === id);
+            const firstRecord = p.weightHistory[0];
+
             document.getElementById('name').value = p.name;
             document.getElementById('age').value = p.age;
             document.getElementById('gender').value = p.gender;
             document.getElementById('height').value = p.height;
-            document.getElementById('initialWeight').value = p.weightHistory[0].weight;
+            document.getElementById('initialWeight').value = firstRecord.weight;
             document.getElementById('targetWeight').value = p.targetWeight || '';
-            document.getElementById('initialWeight').disabled = true;
+            
+            document.getElementById('initialChest').value = firstRecord.chest || '';
+            document.getElementById('initialAbs').value = firstRecord.abs || '';
+            document.getElementById('initialHips').value = firstRecord.hips || '';
+            
+            document.getElementById('initialWeight').disabled = true; // Não deixa mudar o primeiro peso
             editingId = p.id;
             toggleModal(true);
         };
@@ -234,6 +312,15 @@
             const container = document.getElementById('participantsList');
             container.innerHTML = '';
             
+            if (isFetching) {
+                container.innerHTML = `
+                    <div class="col-span-full text-center py-12">
+                        <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <p class="text-white/60 text-lg">A carregar o teu desafio...</p>
+                    </div>`;
+                return;
+            }
+
             if (participants.length === 0) {
                 container.innerHTML = `
                     <div class="col-span-full text-center py-12 bg-white/5 backdrop-blur-sm rounded-3xl border border-white/10">
@@ -274,6 +361,32 @@
                     `;
                 }
 
+                let measurementsHtml = '';
+                if (p.metrics.cmLost > 0) {
+                    measurementsHtml = `
+                    <div class="mt-3 bg-white/5 rounded-xl p-3 border border-white/10 flex justify-between items-center">
+                        <div>
+                            <p class="text-white/60 text-[10px] uppercase font-bold tracking-wider">Medidas Perdidas</p>
+                            <p class="text-white font-medium text-sm">-${p.metrics.cmLost.toFixed(1)} cm totais</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-cyan-400 font-bold text-sm">-${p.metrics.cmLostPercentage.toFixed(1)}%</span>
+                            <p class="text-white/40 text-[10px]">do volume corporal</p>
+                        </div>
+                    </div>`;
+                } else if (p.metrics.cmLost < 0) { // Se ganhou medidas
+                     measurementsHtml = `
+                    <div class="mt-3 bg-white/5 rounded-xl p-3 border border-red-500/20 flex justify-between items-center">
+                        <div>
+                            <p class="text-white/60 text-[10px] uppercase font-bold tracking-wider">Variação Medidas</p>
+                            <p class="text-white font-medium text-sm">+${Math.abs(p.metrics.cmLost).toFixed(1)} cm totais</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-red-400 font-bold text-sm">+${Math.abs(p.metrics.cmLostPercentage).toFixed(1)}%</span>
+                        </div>
+                    </div>`;
+                }
+
                 const badgesHtml = p.metrics.badges.map(b => `<span title="${b.title}" class="text-xl">${b.icon}</span>`).join(' ');
 
                 const card = document.createElement('div');
@@ -289,7 +402,7 @@
                             <p class="text-white/60 text-sm">${p.age} anos • ${p.height}cm • ${p.gender === 'M' ? 'Masc' : 'Fem'}</p>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="openAddWeightModal('${p.id}')" class="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white" title="Atualizar Peso">⚖️</button>
+                            <button onclick="openAddWeightModal('${p.id}')" class="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white" title="Atualizar Avaliação">⚖️</button>
                             <button onclick="editParticipant('${p.id}')" class="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white" title="Editar">✏️</button>
                             <button onclick="confirmDelete('${p.id}')" class="p-2 bg-red-500/20 hover:bg-red-500/40 rounded-full text-red-200" title="Excluir">🗑️</button>
                         </div>
@@ -318,6 +431,7 @@
                             <div class="bg-gradient-to-r from-emerald-400 to-green-400 h-2 rounded-full transition-all duration-1000" style="width: ${Math.min(100, Math.max(0, p.metrics.scorePercentage))}%"></div>
                         </div>
                         ${targetProgress}
+                        ${measurementsHtml}
                     </div>
                     <div class="mt-4 h-24 relative z-10 bg-black/10 rounded-xl p-2">
                         <canvas id="chart-${p.id}"></canvas>
@@ -355,7 +469,9 @@
             evaluated.forEach((p, i) => {
                 const medal = i < 3 ? medals[i] : '🏅';
                 const badges = p.metrics.badges.map(b => b.icon).join('');
-                text += `${medal} *${p.name}* ${badges}\nPontuação: ${p.metrics.scorePercentage.toFixed(1)}%\nPerdeu: ${p.metrics.weightLost.toFixed(1)}kg\n\n`;
+                text += `${medal} *${p.name}* ${badges}\nPontuação Justa: ${p.metrics.scorePercentage.toFixed(1)}%\nPerdeu Peso: ${p.metrics.weightLost.toFixed(1)}kg\n`;
+                if(p.metrics.cmLost > 0) text += `Perdeu Medidas: ${p.metrics.cmLost.toFixed(1)}cm (${p.metrics.cmLostPercentage.toFixed(1)}%)\n`;
+                text += `\n`;
             });
             const tempInput = document.createElement("textarea");
             tempInput.value = text;
@@ -436,9 +552,9 @@
         </div>
     </div>
 
-    <!-- Modal Novo/Editar -->
+    <!-- Modal Novo/Editar Competidor -->
     <div id="modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-        <div class="bg-[#1a1a2e] border border-white/10 p-8 rounded-3xl w-full max-w-md shadow-2xl relative">
+        <div class="bg-[#1a1a2e] border border-white/10 p-6 md:p-8 rounded-3xl w-full max-w-md shadow-2xl relative max-h-[90vh] overflow-y-auto">
             <h2 class="text-2xl font-bold text-white mb-6">Competidor</h2>
             <form id="form" class="space-y-4">
                 <div>
@@ -468,10 +584,30 @@
                         <input type="number" step="0.1" id="initialWeight" required class="w-full p-3 rounded-xl">
                     </div>
                 </div>
+                
+                <div class="bg-black/20 p-4 rounded-xl border border-white/5">
+                    <p class="text-sm font-semibold text-white/80 mb-3">Medidas Iniciais (Opcional)</p>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-[11px] text-white/60 mb-1 uppercase tracking-wider">Peito (cm)</label>
+                            <input type="number" step="0.1" id="initialChest" class="w-full p-2 rounded-lg text-sm text-center">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-white/60 mb-1 uppercase tracking-wider">Abdômen</label>
+                            <input type="number" step="0.1" id="initialAbs" class="w-full p-2 rounded-lg text-sm text-center">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-white/60 mb-1 uppercase tracking-wider">Quadril</label>
+                            <input type="number" step="0.1" id="initialHips" class="w-full p-2 rounded-lg text-sm text-center">
+                        </div>
+                    </div>
+                </div>
+
                 <div>
-                    <label class="block text-sm text-white/60 mb-1">Meta Pessoal (kg) - Opcional</label>
+                    <label class="block text-sm text-white/60 mb-1">Meta Pessoal de Peso (kg) - Opcional</label>
                     <input type="number" step="0.1" id="targetWeight" class="w-full p-3 rounded-xl">
                 </div>
+                
                 <div class="flex gap-3 pt-4">
                     <button type="button" onclick="toggleModal(false)" class="flex-1 p-3 rounded-xl bg-white/5 text-white hover:bg-white/10 font-semibold transition">Cancelar</button>
                     <button type="submit" class="flex-1 p-3 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold transition">Salvar</button>
@@ -480,16 +616,37 @@
         </div>
     </div>
 
-    <!-- Modal Novo Peso -->
+    <!-- Modal Nova Avaliação (Peso e Medidas) -->
     <div id="addWeightModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-        <div class="bg-[#1a1a2e] border border-white/10 p-8 rounded-3xl w-full max-w-sm shadow-2xl relative">
-            <h2 id="newWeightLabel" class="text-xl font-bold text-white mb-6">Novo Peso</h2>
+        <div class="bg-[#1a1a2e] border border-white/10 p-6 md:p-8 rounded-3xl w-full max-w-sm shadow-2xl relative">
+            <h2 id="newWeightLabel" class="text-xl font-bold text-white mb-2">Nova Avaliação</h2>
+            <p id="lastWeightInfo" class="text-xs text-white/50 mb-6 bg-white/5 inline-block px-3 py-1 rounded-full"></p>
+            
             <form id="addWeightForm" class="space-y-4">
                 <input type="hidden" id="addWeightId">
                 <div>
-                    <label class="block text-sm text-white/60 mb-1">Peso Atual (kg)</label>
-                    <input type="number" step="0.1" id="newWeightInput" required class="w-full p-3 rounded-xl text-2xl text-center font-bold">
+                    <label class="block text-sm text-white/60 mb-1 font-medium">Peso Atual (kg)</label>
+                    <input type="number" step="0.1" id="newWeightInput" required class="w-full p-4 rounded-xl text-3xl text-center font-bold bg-white/5 border border-white/20 text-white focus:border-green-400">
                 </div>
+                
+                <div class="bg-black/20 p-4 rounded-xl border border-white/5 mt-4">
+                    <p class="text-xs font-semibold text-white/60 mb-3">Novas Medidas (Deixe vazio para manter as últimas)</p>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-[10px] text-white/50 mb-1 uppercase tracking-wider text-center">Peito</label>
+                            <input type="number" step="0.1" id="newChestInput" class="w-full p-2 rounded-lg text-sm text-center">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-white/50 mb-1 uppercase tracking-wider text-center">Abdômen</label>
+                            <input type="number" step="0.1" id="newAbsInput" class="w-full p-2 rounded-lg text-sm text-center">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-white/50 mb-1 uppercase tracking-wider text-center">Quadril</label>
+                            <input type="number" step="0.1" id="newHipsInput" class="w-full p-2 rounded-lg text-sm text-center">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex gap-3 pt-4">
                     <button type="button" onclick="closeAddWeightModal()" class="flex-1 p-3 rounded-xl bg-white/5 text-white hover:bg-white/10 font-semibold transition">Cancelar</button>
                     <button type="submit" class="flex-1 p-3 rounded-xl bg-green-500 hover:bg-green-600 text-white font-semibold transition">Atualizar</button>
