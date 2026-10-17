@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FairFit Challenge</title>
+    <title>FairFit Challenge - Offline</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -46,8 +46,8 @@
             display: none;
         }
         .no-scrollbar {
-            -ms-overflow-style: none;  /* IE and Edge */
-            scrollbar-width: none;  /* Firefox */
+            -ms-overflow-style: none;
+            scrollbar-width: none;
         }
     </style>
 </head>
@@ -66,8 +66,8 @@
                     FairFit Challenge
                 </h1>
                 <p class="text-gray-600 mt-2 font-medium flex items-center gap-2">
-                    <i data-lucide="info" class="w-4 h-4 text-purple-500"></i>
-                    Dados salvos automaticamente na nuvem
+                    <i data-lucide="hard-drive" class="w-4 h-4 text-purple-500"></i>
+                    Dados salvos localmente neste dispositivo
                 </p>
             </div>
             <div class="flex flex-col sm:flex-row gap-3">
@@ -90,11 +90,7 @@
         </header>
 
         <div id="participantsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <!-- Loading State -->
-            <div class="col-span-full py-20 text-center bg-white/30 backdrop-blur-xl border border-white/50 rounded-3xl">
-                <i data-lucide="loader-2" class="w-12 h-12 text-blue-500 mx-auto mb-4 animate-spin"></i>
-                <h3 class="text-xl font-bold text-gray-600">Conectando à nuvem...</h3>
-            </div>
+            <!-- Participantes serão injetados aqui via JavaScript -->
         </div>
     </div>
 
@@ -207,87 +203,76 @@
         </div>
     </div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Variáveis de ambiente injetadas
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        let app, auth, db, currentUser;
+    <script>
+        // Configuração de Estado e Local Storage
+        const STORAGE_KEY = 'fairFitChallengeData';
+        let rawParticipants = [];
         let globalParticipants = [];
-        let chartInstances = {}; // Para guardar as referências dos gráficos e destruí-los ao recriar
+        let chartInstances = {};
 
-        try {
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-
-            const authenticate = async () => {
-                try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                    currentUser = auth.currentUser;
-                    setupRealtimeListener();
-                } catch (error) {
-                    console.error("Erro de autenticação:", error);
-                    document.getElementById('participantsGrid').innerHTML = `<div class="col-span-full py-10 text-center text-red-500">Erro ao conectar com a nuvem.</div>`;
-                }
-            };
-            authenticate();
-        } catch (e) {
-            console.error("Erro ao inicializar Firebase", e);
+        // Inicializa a aplicação
+        function initApp() {
+            loadFromStorage();
+            processAndRender();
+            lucide.createIcons();
         }
 
-        function setupRealtimeListener() {
-            if (!currentUser) return;
+        // Funções de Storage
+        function loadFromStorage() {
+            const data = localStorage.getItem(STORAGE_KEY);
+            if (data) {
+                try {
+                    rawParticipants = JSON.parse(data);
+                } catch (e) {
+                    console.error("Erro ao ler dados locais", e);
+                    rawParticipants = [];
+                }
+            } else {
+                rawParticipants = [];
+            }
+        }
+
+        function saveToStorage() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(rawParticipants));
+        }
+
+        function generateId() {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2);
+        }
+
+        function processAndRender() {
+            // Processa métricas básicas
+            const processed = rawParticipants.map(calculateMetrics);
             
-            // Regra Obrigatória 1: Caminho estrito
-            const participantsRef = collection(db, 'artifacts', appId, 'public', 'data', 'participants');
-            
-            onSnapshot(participantsRef, (snapshot) => {
-                const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
-                // Processa métricas antes de salvar no estado global
-                const processed = data.map(calculateMetrics);
-                
-                // Aplica lógica da Badge "On Fire"
-                let maxRecentLoss = 0;
-                let onFireId = null;
-                processed.forEach(p => {
-                    if (p.weightHistory.length >= 2) {
-                        const loss = p.weightHistory[p.weightHistory.length - 2].weight - p.currentWeight;
-                        if (loss > maxRecentLoss && loss > 0) {
-                            maxRecentLoss = loss;
-                            onFireId = p.id;
-                        }
-                    }
-                });
-                if (onFireId) {
-                    const onFireUser = processed.find(p => p.id === onFireId);
-                    if (onFireUser) {
-                        onFireUser.badges.unshift({ 
-                            icon: '🔥', 
-                            color: 'bg-orange-100 text-orange-600 border-orange-200', 
-                            title: 'On Fire', 
-                            desc: `Maior perda recente (-${maxRecentLoss.toFixed(1)}kg)` 
-                        });
+            // Aplica lógica da Badge "On Fire" analisando todos os competidores
+            let maxRecentLoss = 0;
+            let onFireId = null;
+            processed.forEach(p => {
+                if (p.weightHistory.length >= 2) {
+                    const loss = p.weightHistory[p.weightHistory.length - 2].weight - p.currentWeight;
+                    if (loss > maxRecentLoss && loss > 0) {
+                        maxRecentLoss = loss;
+                        onFireId = p.id;
                     }
                 }
-
-                // Ordena por maior pontuação (Regra 2: Ordenar em memória)
-                globalParticipants = processed.sort((a, b) => b.score - a.score);
-                
-                renderParticipants();
-            }, (error) => {
-                console.error("Erro no onSnapshot:", error);
             });
+            
+            if (onFireId) {
+                const onFireUser = processed.find(p => p.id === onFireId);
+                if (onFireUser) {
+                    onFireUser.badges.unshift({ 
+                        icon: '🔥', 
+                        color: 'bg-orange-100 text-orange-600 border-orange-200', 
+                        title: 'On Fire', 
+                        desc: `Maior perda recente (-${maxRecentLoss.toFixed(1)}kg)` 
+                    });
+                }
+            }
+
+            // Ordena por maior pontuação (% de Perda do Excesso de Peso)
+            globalParticipants = processed.sort((a, b) => b.score - a.score);
+            
+            renderParticipants();
         }
 
         function calculateMetrics(p) {
@@ -307,21 +292,22 @@
             const idealWeight = 25 * (heightM * heightM); 
             const realExcessWeight = Math.max(0, initialWeight - idealWeight);
 
-            // Amortecedor de excesso mínimo para não prejudicar quem tem pouco a perder
+            // Amortecedor: no mínimo 15% do peso inicial conta como excesso para fins de cálculo
             const safeExcessWeight = Math.max(realExcessWeight, initialWeight * 0.15);
 
             const weightLost = initialWeight - currentWeight;
             const score = (weightLost / safeExcessWeight) * 100;
 
             const badges = [];
+            // Verifica Consistência (3 quedas seguidas)
             if (history.length >= 3) {
                 if (history[history.length-1].weight < history[history.length-2].weight &&
                     history[history.length-2].weight < history[history.length-3].weight) {
-                    badges.push({ icon: '🐢', color: 'bg-emerald-100 text-emerald-600 border-emerald-200', title: 'Consistente', desc: 'Perdeu peso em 3 pesagens' });
+                    badges.push({ icon: '🐢', color: 'bg-emerald-100 text-emerald-600 border-emerald-200', title: 'Consistente', desc: 'Perdeu peso nas 3 últimas pesagens' });
                 }
             }
-            if (score >= 50) badges.push({ icon: '🌟', color: 'bg-yellow-100 text-yellow-600 border-yellow-200', title: 'Estrela', desc: '50% do objetivo' });
-            else if (score >= 20) badges.push({ icon: '⭐', color: 'bg-blue-100 text-blue-600 border-blue-200', title: 'Focado', desc: '20% do objetivo' });
+            if (score >= 50) badges.push({ icon: '🌟', color: 'bg-yellow-100 text-yellow-600 border-yellow-200', title: 'Estrela', desc: 'Atingiu 50% do objetivo' });
+            else if (score >= 20) badges.push({ icon: '⭐', color: 'bg-blue-100 text-blue-600 border-blue-200', title: 'Focado', desc: 'Atingiu 20% do objetivo' });
             
             if (p.targetWeight && currentWeight <= p.targetWeight) {
                 badges.push({ icon: '🎯', color: 'bg-purple-100 text-purple-600 border-purple-200', title: 'Meta Batida', desc: 'Atingiu a meta pessoal!' });
@@ -333,7 +319,7 @@
                 targetProgress = Math.max(0, Math.min(100, (weightLost / totalToLose) * 100));
             }
 
-            // Prepara dados pro gráfico (Array de labels e dados)
+            // Formatação para o Gráfico Chart.js
             const chartLabels = history.map(entry => {
                 const d = new Date(entry.date);
                 return `${d.getDate()}/${d.getMonth() + 1}`;
@@ -368,7 +354,7 @@
                 const card = document.createElement('div');
                 card.className = "group relative bg-white/40 backdrop-blur-xl border border-white/50 p-6 rounded-3xl shadow-[0_8px_32px_0_rgba(31,38,135,0.05)] hover:shadow-[0_8px_32px_0_rgba(31,38,135,0.15)] transition-all duration-300 flex flex-col";
                 
-                // Badge de Posição
+                // Badge Pódio
                 let rankBadge = '';
                 if (p.score > 0) {
                     let rankClass = index === 0 ? 'bg-gradient-to-br from-yellow-300 to-yellow-600 text-xl w-12 h-12 -top-5 -left-5' : 
@@ -378,12 +364,10 @@
                     rankBadge = `<div class="absolute flex items-center justify-center rounded-full text-white font-bold shadow-lg border-2 border-white/50 backdrop-blur-md z-20 ${rankClass}">${index + 1}º</div>`;
                 }
 
-                // Badges HTML
                 let badgesHtml = p.badges.map(b => 
                     `<span title="${b.desc}" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${b.color} border cursor-help shadow-sm">${b.icon} ${b.title}</span>`
                 ).join('');
 
-                // Status de Perda/Ganho
                 let diffClass = p.weightLost > 0 ? 'text-emerald-600' : p.weightLost < 0 ? 'text-red-500' : 'text-gray-400';
                 let diffText = p.weightLost > 0 ? `-${p.weightLost.toFixed(1)}` : p.weightLost < 0 ? `+${Math.abs(p.weightLost).toFixed(1)}` : '0.0';
                 
@@ -487,66 +471,67 @@
                 
                 grid.appendChild(card);
 
-                // Configura o Gráfico Chart.js se houver mais de 1 ponto de dados
                 if (p.chartData.length > 1) {
-                    const ctx = document.getElementById(`chart-${p.id}`).getContext('2d');
-                    
-                    if(chartInstances[p.id]) {
-                        chartInstances[p.id].destroy();
-                    }
-
-                    chartInstances[p.id] = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: p.chartLabels,
-                            datasets: [{
-                                data: p.chartData,
-                                borderColor: '#8b5cf6',
-                                backgroundColor: '#8b5cf6',
-                                borderWidth: 3,
-                                pointRadius: 4,
-                                pointBackgroundColor: '#8b5cf6',
-                                pointBorderColor: '#fff',
-                                pointBorderWidth: 2,
-                                pointHoverRadius: 6,
-                                fill: false,
-                                tension: 0.4 // Curva suave
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: { display: false },
-                                tooltip: {
-                                    displayColors: false,
-                                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                                    titleColor: '#000',
-                                    bodyColor: '#6366f1',
-                                    bodyFont: { weight: 'bold', size: 14 },
-                                    borderColor: 'rgba(0,0,0,0.05)',
-                                    borderWidth: 1,
-                                    callbacks: {
-                                        title: () => null, // Oculta o titulo (data)
-                                        label: (context) => `${context.parsed.y} kg`
-                                    }
-                                }
-                            },
-                            scales: {
-                                x: { display: false },
-                                y: { 
-                                    display: false,
-                                    min: Math.min(...p.chartData) - 1,
-                                    max: Math.max(...p.chartData) + 1
-                                }
-                            },
-                            layout: { padding: 5 }
+                    const canvasElement = document.getElementById(`chart-${p.id}`);
+                    if(canvasElement) {
+                        const ctx = canvasElement.getContext('2d');
+                        
+                        if(chartInstances[p.id]) {
+                            chartInstances[p.id].destroy();
                         }
-                    });
+
+                        chartInstances[p.id] = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: p.chartLabels,
+                                datasets: [{
+                                    data: p.chartData,
+                                    borderColor: '#8b5cf6',
+                                    backgroundColor: '#8b5cf6',
+                                    borderWidth: 3,
+                                    pointRadius: 4,
+                                    pointBackgroundColor: '#8b5cf6',
+                                    pointBorderColor: '#fff',
+                                    pointBorderWidth: 2,
+                                    pointHoverRadius: 6,
+                                    fill: false,
+                                    tension: 0.4
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        displayColors: false,
+                                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                        titleColor: '#000',
+                                        bodyColor: '#6366f1',
+                                        bodyFont: { weight: 'bold', size: 14 },
+                                        borderColor: 'rgba(0,0,0,0.05)',
+                                        borderWidth: 1,
+                                        callbacks: {
+                                            title: () => null,
+                                            label: (context) => `${context.parsed.y} kg`
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    x: { display: false },
+                                    y: { 
+                                        display: false,
+                                        min: Math.min(...p.chartData) - 1,
+                                        max: Math.max(...p.chartData) + 1
+                                    }
+                                },
+                                layout: { padding: 5 }
+                            }
+                        });
+                    }
                 }
             });
 
-            // Re-renderiza os ícones do Lucide criados dinamicamente
             lucide.createIcons();
         }
 
@@ -555,7 +540,7 @@
             form.reset();
             
             if (id) {
-                const p = globalParticipants.find(x => x.id === id);
+                const p = rawParticipants.find(x => x.id === id);
                 if(p) {
                     document.getElementById('modalTitle').innerText = 'Editar Competidor';
                     document.getElementById('editId').value = p.id;
@@ -563,8 +548,12 @@
                     document.getElementById('formAge').value = p.age;
                     document.getElementById('formGender').value = p.gender;
                     document.getElementById('formHeight').value = p.height;
-                    document.getElementById('formInitialWeight').value = p.initialWeight;
+                    
+                    // Pega o peso inicial real (primeiro historico)
+                    const initWeight = p.weightHistory && p.weightHistory.length > 0 ? p.weightHistory[0].weight : p.initialWeight;
+                    document.getElementById('formInitialWeight').value = initWeight;
                     document.getElementById('formInitialWeight').disabled = true; // Impede alterar raiz
+                    
                     if(p.targetWeight) document.getElementById('formTargetWeight').value = p.targetWeight;
                 }
             } else {
@@ -593,73 +582,60 @@
             document.getElementById('deleteModal').classList.add('hidden');
         };
 
-        window.saveParticipant = async (e) => {
+        window.saveParticipant = (e) => {
             e.preventDefault();
-            if (!currentUser) return;
-
+            
             const editId = document.getElementById('editId').value;
-            const btn = e.target.querySelector('button[type="submit"]');
-            btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
-            lucide.createIcons();
+            const targetW = document.getElementById('formTargetWeight').value;
 
             const baseData = {
                 name: document.getElementById('formName').value,
                 gender: document.getElementById('formGender').value,
                 age: Number(document.getElementById('formAge').value),
                 height: Number(document.getElementById('formHeight').value),
-                targetWeight: document.getElementById('formTargetWeight').value ? Number(document.getElementById('formTargetWeight').value) : null,
+                targetWeight: targetW ? Number(targetW) : null,
             };
 
-            try {
-                if (editId) {
-                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'participants', editId), baseData);
-                } else {
-                    const initWeight = Number(document.getElementById('formInitialWeight').value);
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'participants'), {
-                        ...baseData,
-                        initialWeight: initWeight,
-                        weightHistory: [{ date: new Date().toISOString(), weight: initWeight }]
-                    });
+            if (editId) {
+                // Modo Edição
+                const index = rawParticipants.findIndex(p => p.id === editId);
+                if(index !== -1) {
+                    rawParticipants[index] = { ...rawParticipants[index], ...baseData };
                 }
-                closeModals();
-            } catch (err) {
-                console.error("Erro ao salvar", err);
-                alert("Erro ao salvar dados.");
-            } finally {
-                btn.innerHTML = 'Salvar Competidor';
+            } else {
+                // Modo Novo
+                const initWeight = Number(document.getElementById('formInitialWeight').value);
+                const newParticipant = {
+                    id: generateId(),
+                    ...baseData,
+                    initialWeight: initWeight,
+                    weightHistory: [{ date: new Date().toISOString(), weight: initWeight }]
+                };
+                rawParticipants.push(newParticipant);
             }
+
+            saveToStorage();
+            processAndRender();
+            closeModals();
         };
 
-        window.saveWeight = async (e) => {
+        window.saveWeight = (e) => {
             e.preventDefault();
-            if (!currentUser) return;
-
+            
             const editId = document.getElementById('weightEditId').value;
             const newWeight = Number(document.getElementById('formNewWeight').value);
             
-            const btn = e.target.querySelector('button[type="submit"]');
-            btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
-            lucide.createIcons();
+            const index = rawParticipants.findIndex(p => p.id === editId);
+            if (index === -1) return;
 
-            const participant = globalParticipants.find(p => p.id === editId);
-            if (!participant) return;
+            let history = rawParticipants[index].weightHistory || [];
+            history.push({ date: new Date().toISOString(), weight: newWeight });
+            
+            rawParticipants[index].weightHistory = history;
 
-            let newHistory = [
-                ...participant.weightHistory,
-                { date: new Date().toISOString(), weight: newWeight }
-            ];
-
-            try {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'participants', editId), {
-                    weightHistory: newHistory
-                });
-                closeModals();
-            } catch (err) {
-                console.error("Erro ao atualizar peso", err);
-                alert("Erro ao salvar novo peso.");
-            } finally {
-                btn.innerHTML = 'Salvar Nova Pesagem';
-            }
+            saveToStorage();
+            processAndRender();
+            closeModals();
         };
 
         let pendingDeleteId = null;
@@ -668,20 +644,14 @@
             document.getElementById('deleteModal').classList.remove('hidden');
         };
 
-        document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
-            if (!currentUser || !pendingDeleteId) return;
-            const btn = document.getElementById('confirmDeleteBtn');
-            btn.innerText = 'Apagando...';
+        document.getElementById('confirmDeleteBtn').addEventListener('click', () => {
+            if (!pendingDeleteId) return;
             
-            try {
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'participants', pendingDeleteId));
-                closeModals();
-            } catch (err) {
-                console.error("Erro ao excluir", err);
-            } finally {
-                btn.innerText = 'Sim, Excluir';
-                pendingDeleteId = null;
-            }
+            rawParticipants = rawParticipants.filter(p => p.id !== pendingDeleteId);
+            saveToStorage();
+            processAndRender();
+            closeModals();
+            pendingDeleteId = null;
         });
 
         window.shareRanking = () => {
@@ -693,10 +663,10 @@
             });
             
             try {
-                // Cria um textarea invisível temporário para realizar a cópia
+                // Técnica robusta de cópia
                 const textArea = document.createElement("textarea");
                 textArea.value = text;
-                textArea.style.position = "fixed";  // Evita rolar a página para baixo
+                textArea.style.position = "fixed";
                 textArea.style.left = "-999999px";
                 textArea.style.top = "-999999px";
                 document.body.appendChild(textArea);
@@ -725,15 +695,15 @@
                         lucide.createIcons();
                     }, 2000);
                 } else {
-                    console.error("Falha ao copiar usando execCommand");
+                    console.error("Falha ao copiar ranking.");
                 }
             } catch (err) {
                 console.error("Erro ao copiar", err);
             }
         };
 
-        // Inicializa ícones base
-        lucide.createIcons();
+        // Inicia tudo
+        window.onload = initApp;
     </script>
 </body>
 </html>
