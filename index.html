@@ -7,27 +7,28 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module">
-    /  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
-  import { getAnalytics } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-analytics.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
+        // Importações do Firebase (mantidas na versão estável compatível com o app)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
-  // Your web app's Firebase configuration
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-  const firebaseConfig = {
-    apiKey: "AIzaSyC_H5RRr8OgNAyd0xV01oFG-sQmnUQtA5M",
-    authDomain: "fairfit-61158.firebaseapp.com",
-    projectId: "fairfit-61158",
-    storageBucket: "fairfit-61158.firebasestorage.app",
-    messagingSenderId: "815073249544",
-    appId: "1:815073249544:web:31a40eb1baaf1bcdbec4bd",
-    measurementId: "G-43K3MJ4S7B"
-  };
+        // ==========================================
+        // SUAS CHAVES DO FIREBASE APLICADAS
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyC_H5RRr8OgNAyd0xV01oFG-sQmnUQtA5M",
+            authDomain: "fairfit-61158.firebaseapp.com",
+            projectId: "fairfit-61158",
+            storageBucket: "fairfit-61158.firebasestorage.app",
+            messagingSenderId: "815073249544",
+            appId: "1:815073249544:web:31a40eb1baaf1bcdbec4bd",
+            measurementId: "G-43K3MJ4S7B"
+        };
 
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-  const analytics = getAnalytics(app);
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
 
         let participants = [];
         let editingId = null;
@@ -50,7 +51,6 @@
             signOut(auth).catch((error) => console.error("Erro ao sair:", error));
         };
 
-        // Observa se o usuário está logado ou não
         onAuthStateChanged(auth, (user) => {
             const loginScreen = document.getElementById('loginScreen');
             const appScreen = document.getElementById('appScreen');
@@ -58,17 +58,15 @@
             const userNameDisplay = document.getElementById('userNameDisplay');
 
             if (user) {
-                // Usuário LOGADO
                 currentUserId = user.uid;
                 loginScreen.style.display = 'none';
                 appScreen.style.display = 'block';
                 userProfilePic.src = user.photoURL || '';
-                userNameDisplay.innerText = user.displayName.split(' ')[0]; // Pega o primeiro nome
+                userNameDisplay.innerText = user.displayName.split(' ')[0];
 
-                // Busca os participantes APENAS da conta deste usuário
                 const userParticipantsRef = collection(db, "users", currentUserId, "participants");
                 
-                if (unsubscribeSnapshot) unsubscribeSnapshot(); // Limpa listener antigo se houver
+                if (unsubscribeSnapshot) unsubscribeSnapshot();
                 
                 unsubscribeSnapshot = onSnapshot(userParticipantsRef, (snapshot) => {
                     participants = [];
@@ -78,7 +76,6 @@
                     renderDashboard();
                 });
             } else {
-                // Usuário NÃO LOGADO
                 currentUserId = null;
                 loginScreen.style.display = 'flex';
                 appScreen.style.display = 'none';
@@ -90,15 +87,15 @@
         });
 
         // ==========================================
-        // OPERAÇÕES NO BANCO DE DADOS (SCOPED POR USUÁRIO)
+        // OPERAÇÕES NO BANCO DE DADOS
         // ==========================================
         window.saveParticipantToCloud = async function(participant) {
             if (!currentUserId) return;
             try {
-                // Salva dentro da pasta do usuário logado
                 await setDoc(doc(db, "users", currentUserId, "participants", participant.id), participant);
             } catch (error) {
                 console.error("Erro ao salvar:", error);
+                alert("Erro ao salvar dados. Verifique se o Firestore Database está criado e no 'Modo de Teste'.");
             }
         };
 
@@ -112,7 +109,7 @@
         };
 
         // ==========================================
-        // LÓGICA DE CÁLCULO E INTERFACE (Mantida igual)
+        // LÓGICA DE CÁLCULO E INTERFACE
         // ==========================================
         function calculateIdealWeight(height) {
             const heightInMeters = height / 100;
@@ -286,8 +283,7 @@
                     <div class="flex justify-between items-start mb-4 relative z-10">
                         <div>
                             <div class="flex items-center gap-2">
-                                <h3 class="text-xl font-bold text-white">#${index + 1} ${p.name}</h3>
-                                ${badgesHtml}
+                                <h3 class="text-xl font-bold text-white">#${index + 1} ${p.name}</h3>${badgesHtml}
                             </div>
                             <p class="text-white/60 text-sm">${p.age} anos • ${p.height}cm • ${p.gender === 'M' ? 'Masc' : 'Fem'}</p>
                         </div>
@@ -300,207 +296,4 @@
                     <div class="grid grid-cols-2 gap-4 mb-4 relative z-10">
                         <div class="bg-black/20 rounded-2xl p-4 text-center">
                             <p class="text-white/60 text-xs mb-1">PESO INICIAL</p>
-                            <p class="text-2xl font-bold text-white">${initialWeight.toFixed(1)} <span class="text-sm font-normal">kg</span></p>
-                            <p class="text-white/50 text-xs mt-1">IMC: ${p.metrics.initialIMC.toFixed(1)}</p>
-                        </div>
-                        <div class="bg-white/10 rounded-2xl p-4 text-center border border-white/20 shadow-[inset_0_0_20px_rgba(255,255,255,0.05)]">
-                            <p class="text-white/80 text-xs mb-1 font-semibold">PESO ATUAL</p>
-                            <p class="text-2xl font-bold text-white">${currentWeight.toFixed(1)} <span class="text-sm font-normal">kg</span></p>
-                            <div class="flex justify-center items-center gap-2 mt-1">
-                                <p class="text-white/80 text-xs">IMC: ${p.metrics.currentIMC.toFixed(1)}</p>
-                                ${p.metrics.imcDrop > 0.1 ? `<span class="bg-green-500/20 text-green-300 text-[10px] px-1.5 py-0.5 rounded">-${p.metrics.imcDrop.toFixed(1)}</span>` : ''}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="mb-4 relative z-10">
-                        <div class="flex justify-between items-end mb-1">
-                            <span class="text-sm text-white/80">Pontuação Justa (%PEP)</span>
-                            <span class="text-xl font-bold text-green-400">${p.metrics.scorePercentage.toFixed(1)}%</span>
-                        </div>
-                        <div class="w-full bg-black/20 rounded-full h-2">
-                            <div class="bg-gradient-to-r from-emerald-400 to-green-400 h-2 rounded-full transition-all duration-1000" style="width: ${Math.min(100, Math.max(0, p.metrics.scorePercentage))}%"></div>
-                        </div>
-                        ${targetProgress}
-                    </div>
-                    <div class="mt-4 h-24 relative z-10 bg-black/10 rounded-xl p-2">
-                        <canvas id="chart-${p.id}"></canvas>
-                    </div>
-                `;
-                container.appendChild(card);
-
-                const ctx = document.getElementById(`chart-${p.id}`).getContext('2d');
-                if (chartInstances[p.id]) chartInstances[p.id].destroy();
-                chartInstances[p.id] = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: p.weightHistory.map(w => w.date.substring(0,5)),
-                        datasets: [{
-                            data: p.weightHistory.map(w => w.weight),
-                            borderColor: 'rgba(255, 255, 255, 0.6)',
-                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                            borderWidth: 2, tension: 0.4, fill: true, pointRadius: 3, pointBackgroundColor: '#fff'
-                        }]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-                        scales: { x: { display: true, ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 9 } }, grid: { display: false } }, y: { display: false, min: Math.min(...p.weightHistory.map(w=>w.weight)) - 2, max: Math.max(...p.weightHistory.map(w=>w.weight)) + 2 } }
-                    }
-                });
-            });
-        }
-
-        window.copyRanking = function() {
-            if (participants.length === 0) return alert("Nenhum participante para gerar ranking.");
-            const evaluated = participants.map(p => ({ ...p, metrics: calculateMetrics(p) }));
-            evaluated.sort((a, b) => b.metrics.scorePercentage - a.metrics.scorePercentage);
-            let text = "🏆 *FairFit Challenge - Ranking*\n\n";
-            const medals = ['🥇', '🥈', '🥉'];
-            evaluated.forEach((p, i) => {
-                const medal = i < 3 ? medals[i] : '🏅';
-                const badges = p.metrics.badges.map(b => b.icon).join('');
-                text += `${medal} *${p.name}* ${badges}\nPontuação: ${p.metrics.scorePercentage.toFixed(1)}%\nPerdeu: ${p.metrics.weightLost.toFixed(1)}kg\n\n`;
-            });
-            const tempInput = document.createElement("textarea");
-            tempInput.value = text;
-            document.body.appendChild(tempInput);
-            tempInput.select();
-            document.execCommand("copy");
-            document.body.removeChild(tempInput);
-            alert("Ranking copiado para a área de transferência! É só colar no WhatsApp.");
-        };
-    </script>
-    <style>
-        body { background: linear-gradient(135deg, #1e1e2f 0%, #0f0f1a 100%); min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0;}
-        .bg-shapes { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; overflow: hidden; pointer-events: none;}
-        .shape { position: absolute; filter: blur(80px); opacity: 0.5; animation: float 20s infinite ease-in-out; }
-        .shape-1 { background: #4f46e5; width: 400px; height: 400px; top: -100px; left: -100px; border-radius: 50%; }
-        .shape-2 { background: #ec4899; width: 300px; height: 300px; bottom: 100px; right: -50px; border-radius: 50%; animation-delay: -5s; }
-        .shape-3 { background: #06b6d4; width: 350px; height: 350px; top: 40%; left: 30%; border-radius: 50%; animation-delay: -10s; }
-        @keyframes float { 0%, 100% { transform: translate(0, 0); } 33% { transform: translate(30px, -50px); } 66% { transform: translate(-20px, 40px); } }
-        input, select { background: rgba(0,0,0,0.2) !important; border: 1px solid rgba(255,255,255,0.1) !important; color: white !important; }
-        input:focus, select:focus { outline: none; border-color: rgba(255,255,255,0.5) !important; }
-        option { background: #1e1e2f; color: white; }
-    </style>
-</head>
-<body>
-    <div class="bg-shapes">
-        <div class="shape shape-1"></div>
-        <div class="shape shape-2"></div>
-        <div class="shape shape-3"></div>
-    </div>
-
-    <!-- TELA DE LOGIN (Mostrada por padrão) -->
-    <div id="loginScreen" class="min-h-screen flex items-center justify-center p-4 z-10 relative">
-        <div class="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-3xl w-full max-w-md text-center shadow-2xl">
-            <div class="w-20 h-20 bg-gradient-to-tr from-blue-500 to-cyan-400 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-lg rotate-3">
-                <span class="text-4xl">⚖️</span>
-            </div>
-            <h1 class="text-3xl font-black text-white mb-2 tracking-tight">FairFit</h1>
-            <p class="text-white/60 mb-8">Crie seu desafio de perda de peso de forma justa. Seus dados serão salvos na sua conta.</p>
-            
-            <button onclick="loginWithGoogle()" class="w-full bg-white hover:bg-gray-100 text-gray-900 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg">
-                <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-6 h-6" alt="Google Logo">
-                Entrar com o Google
-            </button>
-        </div>
-    </div>
-
-    <!-- TELA DO APLICATIVO (Oculta por padrão) -->
-    <div id="appScreen" class="hidden p-4 md:p-8 z-10 relative">
-        <div class="max-w-4xl mx-auto">
-            <!-- Cabeçalho com o Perfil Logado -->
-            <div class="flex justify-between items-center mb-8 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-4">
-                <div class="flex items-center gap-3">
-                    <img id="userProfilePic" src="" alt="Perfil" class="w-10 h-10 rounded-full border-2 border-white/20">
-                    <div>
-                        <p class="text-white font-semibold text-sm">Olá, <span id="userNameDisplay"></span> 👋</p>
-                        <p class="text-white/50 text-xs">Seu desafio privado</p>
-                    </div>
-                </div>
-                <button onclick="logout()" class="text-white/60 hover:text-white text-sm bg-white/5 hover:bg-white/10 px-4 py-2 rounded-lg transition">Sair</button>
-            </div>
-
-            <header class="mb-10 text-center">
-                <h1 class="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-white/60 tracking-tight drop-shadow-sm mb-6">
-                    FairFit Challenge
-                </h1>
-                
-                <div class="flex flex-wrap justify-center gap-4">
-                    <button onclick="toggleModal(true)" class="bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full backdrop-blur-md border border-white/20 transition-all font-semibold flex items-center gap-2 shadow-lg">
-                        <span>+</span> Novo Competidor
-                    </button>
-                    <button onclick="copyRanking()" class="bg-green-500/20 hover:bg-green-500/30 text-green-300 px-6 py-3 rounded-full backdrop-blur-md border border-green-500/30 transition-all font-semibold shadow-lg">
-                        📱 Copiar Ranking
-                    </button>
-                </div>
-            </header>
-
-            <div id="participantsList" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Cards renderizados aqui -->
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal Novo/Editar -->
-    <div id="modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-        <div class="bg-[#1a1a2e] border border-white/10 p-8 rounded-3xl w-full max-w-md shadow-2xl relative">
-            <h2 class="text-2xl font-bold text-white mb-6">Competidor</h2>
-            <form id="form" class="space-y-4">
-                <div>
-                    <label class="block text-sm text-white/60 mb-1">Nome</label>
-                    <input type="text" id="name" required class="w-full p-3 rounded-xl">
-                </div>
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm text-white/60 mb-1">Idade</label>
-                        <input type="number" id="age" required class="w-full p-3 rounded-xl">
-                    </div>
-                    <div>
-                        <label class="block text-sm text-white/60 mb-1">Sexo</label>
-                        <select id="gender" class="w-full p-3 rounded-xl">
-                            <option value="M">Masculino</option>
-                            <option value="F">Feminino</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm text-white/60 mb-1">Altura (cm)</label>
-                        <input type="number" id="height" required class="w-full p-3 rounded-xl">
-                    </div>
-                    <div>
-                        <label class="block text-sm text-white/60 mb-1">Peso Inicial (kg)</label>
-                        <input type="number" step="0.1" id="initialWeight" required class="w-full p-3 rounded-xl">
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-sm text-white/60 mb-1">Meta Pessoal (kg) - Opcional</label>
-                    <input type="number" step="0.1" id="targetWeight" class="w-full p-3 rounded-xl">
-                </div>
-                <div class="flex gap-3 pt-4">
-                    <button type="button" onclick="toggleModal(false)" class="flex-1 p-3 rounded-xl bg-white/5 text-white hover:bg-white/10 font-semibold transition">Cancelar</button>
-                    <button type="submit" class="flex-1 p-3 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold transition">Salvar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Modal Novo Peso -->
-    <div id="addWeightModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-        <div class="bg-[#1a1a2e] border border-white/10 p-8 rounded-3xl w-full max-w-sm shadow-2xl relative">
-            <h2 id="newWeightLabel" class="text-xl font-bold text-white mb-6">Novo Peso</h2>
-            <form id="addWeightForm" class="space-y-4">
-                <input type="hidden" id="addWeightId">
-                <div>
-                    <label class="block text-sm text-white/60 mb-1">Peso Atual (kg)</label>
-                    <input type="number" step="0.1" id="newWeightInput" required class="w-full p-3 rounded-xl text-2xl text-center font-bold">
-                </div>
-                <div class="flex gap-3 pt-4">
-                    <button type="button" onclick="closeAddWeightModal()" class="flex-1 p-3 rounded-xl bg-white/5 text-white hover:bg-white/10 font-semibold transition">Cancelar</button>
-                    <button type="submit" class="flex-1 p-3 rounded-xl bg-green-500 hover:bg-green-600 text-white font-semibold transition">Atualizar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</body>
-</html>
+                            <p class="text-2xl font-bold text-white">${initialWeight.toFixed(1)} <span class="text-sm font-normal
