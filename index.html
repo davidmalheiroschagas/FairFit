@@ -233,15 +233,22 @@
             const newAbs = newAbsInput !== '' ? parseFloat(newAbsInput) : (lastRecord.abs || 0);
             const newHips = newHipsInput !== '' ? parseFloat(newHipsInput) : (lastRecord.hips || 0);
 
-            // Evitar duplicados no mesmo dia: Se a data for igual à última, apenas atualiza
-            if (lastRecord.date === date) {
-                lastRecord.weight = newWeight;
-                lastRecord.chest = newChest;
-                lastRecord.abs = newAbs;
-                lastRecord.hips = newHips;
-            } else {
-                p.weightHistory.push({ date, weight: newWeight, chest: newChest, abs: newAbs, hips: newHips });
-            }
+            // PREVENÇÃO DE ERRO: Nunca sobrescrever o peso inicial (quando length === 1).
+// Só atualiza em vez de criar novo se for no mesmo dia E já houver histórico.
+if (lastRecord.date === date && p.weightHistory.length > 1) {
+    lastRecord.weight = newWeight;
+    lastRecord.chest = newChest;
+    lastRecord.abs = newAbs;
+    lastRecord.hips = newHips;
+} else {
+    // Se estiver a testar no mesmo dia do registo inicial, adiciona a hora para o gráfico separar os pontos
+    let recordDate = date;
+    if (lastRecord.date === date && p.weightHistory.length === 1) {
+        const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        recordDate = `${date} ${time}`; 
+    }
+    p.weightHistory.push({ date: recordDate, weight: newWeight, chest: newChest, abs: newAbs, hips: newHips });
+}
             
             saveParticipantToCloud(p);
             closeAddWeightModal();
